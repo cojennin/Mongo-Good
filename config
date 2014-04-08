@@ -1,0 +1,14 @@
+#CFLAGS="-g -O0" ./configure --add-module=/Users/connorjennings/exper/nginx_mods/imrs --with-debug --with-ld-opt="-lMagickCore-6.Q16 -lMagickWand-6.Q16 -lcurl"
+#CFLAGS="-g -O0" ./configure --add-module=/Users/connorjennings/exper/nginx_mods/imrs --with-debug --with-ld-opt="-lcurl -lstdc++ -lopencv_core.2.4.8" --with-cpp_test_module
+#CFLAGS="-g -O0 -I/usr/local/Cellar/glib/2.38.2/include/glib-2.0 -I/usr/local/Cellar/glib/2.38.2/lib/glib-2.0/include -I/usr/local/opt/gettext/include" ./configure --add-module=/Users/connorjennings/exper/nginx_mods/imrs --with-debug --with-ld-opt="-lcurl -lstdc++ -lvips" --with-cpp_test_module
+##ngx_addon_name=ngx_http_imrs_module
+#HTTP_FILTER_MODULES="$HTTP_FILTER_MODULES ngx_http_imrs_module"
+#NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_imrs_module.c"
+
+ngx_addon_name=ngx_http_imrs_module
+
+HTTP_MODULES="$HTTP_MODULES ngx_http_imrs_module"
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_imrs_module.cpp $ngx_addon_dir/fetch/ngx_http_imrs_curl.cpp $ngx_addon_dir/fetch/ngx_http_imrs_resp_body.cpp $ngx_addon_dir/fetch/ngx_http_imrs_resp_head.cpp $ngx_addon_dir/request/ngx_http_imrs_request_image.cpp $ngx_addon_dir/image/ngx_http_imrs_formatted_image.cpp $ngx_addon_dir/image/ngx_http_imrs_raw_image.cpp"
+NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/ngx_http_imrs_module.h $ngx_addon_dir/fetch/ngx_http_imrs_curl.h $ngx_addon_dir/fetch/ngx_http_imrs_response.h $ngx_addon_dir/fetch/ngx_http_imrs_resp_body.h $ngx_addon_dir/fetch/ngx_http_imrs_resp_head.h $ngx_addon_dir/image/ngx_http_imrs_formatted_image.h $ngx_addon_dir/image/ngx_http_imrs_raw_image.h $ngx_addon_dir/request/ngx_http_imrs_request_image.h"
+
+#$ngx_addon_dir/ngx_http_imrs_raw_image.h $ngx_addon_dir/ngx_http_imrs_request_image_body.h $ngx_addon_dir/ngx_http_imrs_module.h $ngx_addon_dir/ngx_http_imrs_formatted_image.h"
