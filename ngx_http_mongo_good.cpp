@@ -1,6 +1,6 @@
 #include <cstdlib>
 #include <iostream>
-#include "/Users/connorjennings/mongo/src/mongo/client/dbclient.h"
+#include "mongo/client/dbclient.h"
 
 extern "C" {
   #include <ngx_config.h>
@@ -15,7 +15,8 @@ extern "C" {
   typedef struct {
     ngx_str_t     mongo_server_addr;
     ngx_str_t     mongo_user;
-    ngx_str_t     mongo_pass;
+    ngx_str_t     mongo_passw;
+    ngx_str_t     mongo_db_collection;
   } ngx_http_mg_loc_conf_t;
 
   static ngx_command_t ngx_http_mg_commands[] = {
@@ -33,12 +34,20 @@ extern "C" {
       offsetof(ngx_http_mg_loc_conf_t, mongo_user),
       NULL },
 
-    { ngx_string("mongo_pass"),
+    { ngx_string("mongo_passw"),
       NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_mg_loc_conf_t, mongo_pass),
+      offsetof(ngx_http_mg_loc_conf_t, mongo_passw),
       NULL },
+
+    { ngx_string("mongo_db_collection"),
+      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_mg_loc_conf_t, mongo_db_collection),
+      NULL
+    }
 
     ngx_null_command
   };
@@ -74,6 +83,8 @@ extern "C" {
 
 } //End of extern
 
+static ngx_str_t ngx_http_json_type = ngx_string("application/json");
+
 //Mongo c++ db connection
 mongo::DBClientConnection c;
 
@@ -88,9 +99,25 @@ ngx_http_mg_handler(ngx_http_request_t *r)
 
     mgcf = (ngx_http_mg_loc_conf_t *)ngx_http_get_module_loc_conf(r, ngx_http_mg_module);
 
-    if (!(r->method & !(NGX_HTTP_GET|NGX_HTTP_POST))) {
+    if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_POST))) {
         return NGX_HTTP_NOT_ALLOWED;
     }
+
+    try {
+      c.connect(ngx_http_mg_loc_conf_t->mongo_server_addr.data);
+    } catch( const mongo::DBException &e ) {
+      return NGX_HTTP_CLOSE; //For the moment, just shut it down.
+    }
+
+    int count = 0;
+    count = c.count("test.authors");
+
+    ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
+
+    cv.value.len(sizeof(count));
+    cv.value.data = count;
+
+    return ngx_http_send_response(r, NGX_HTTP_OK, &ngx_http_json_type, &cv);
 
     if (r->headers_in.if_modified_since) {
         return NGX_HTTP_NOT_MODIFIED;
@@ -98,6 +125,8 @@ ngx_http_mg_handler(ngx_http_request_t *r)
 
     return rc;
 }
+
+static void get
 
 static char *
 ngx_http_mg(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -126,7 +155,8 @@ ngx_http_mg_create_loc_conf(ngx_conf_t *cf)
      * set by ngx_pcalloc():
      * conf->mongo_server_addr = { 0, NULL }
      * conf->mongo_user = { 0, NULL }
-     * conf->mongo_pass = { 0, NULL }
+     * conf->mongo_passw = { 0, NULL }
+     * conf->mongo_db_collection = { 0, NULL }
      */
 
     return conf;
@@ -140,15 +170,13 @@ ngx_http_mg_merge_loc_conf(ngx_conf_t *cf, void * parent, void * child)
 
     //Merge up all our defaults.
     ngx_conf_merge_str_value(conf->mongo_server_addr, prev->server_addr, "127.0.0.1");
-    ngx_conf_merge_str_value(conf->mongo_user, prev->mongo_user, "admin");
-    ngx_conf_merge_str_value(conf->mongo_pass, prev->mongo_pass, "");
+    ngx_conf_merge_str_value(conf->mongo_user, prev->mongo_user, "");
+    ngx_conf_merge_str_value(conf->mongo_passw, prev->mongo_passw, "");
+    ngx_conf_merge_str_value(conf->mongo_db_collection, prev->mongo_db_collection);
 
-    //Try connecting to Mongo.
-    try {
-      c.connect(conf->mongo_server_addr.data);
-    } catch( const mongo::DBException &e ) {
-      frpintf(stderr, "Problems with connecting to Mongo: %s", e.what() );
-      return NGX_CONF_ERROR; //Should you still be able to boot nginx without a connection to mongo?
+    //If we don't have a collecton, we have a problem.
+    if( conf->mongo_db_collection.len == 0 ) {
+      return NGX_CONF_ERROR;
     }
 
     return NGX_CONF_OK;
