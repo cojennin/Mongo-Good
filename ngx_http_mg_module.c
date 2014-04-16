@@ -7,6 +7,7 @@ static ngx_int_t ngx_http_mg_handler(ngx_http_request_t *);
 static char* ngx_http_mg(ngx_conf_t *, ngx_command_t *, void *);
 static void* ngx_http_mg_create_loc_conf(ngx_conf_t *);
 static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
+static ngx_str_t application_type = ngx_string("application/json");
 
 typedef struct {
   ngx_str_t     mongo_server_addr;
@@ -87,15 +88,14 @@ ngx_module_t ngx_http_mg_module = {
   NGX_MODULE_V1_PADDING
 };
 
-static ngx_str_t ngx_http_json_type = ngx_string("application/json");
-static ngx_str_t ngx_default_server_addr = ngx_string("127.0.0.1");
-
 static ngx_int_t
 ngx_http_mg_handler(ngx_http_request_t *r)
 {
     ngx_int_t    rc;
     ngx_http_mg_conf_t  *mgcf;
     ngx_http_complex_value_t cv;
+    char* response;
+
     //Mongoc related vars
     mongoc_client_t *client;
     mongoc_collection_t *collection;
@@ -106,7 +106,6 @@ ngx_http_mg_handler(ngx_http_request_t *r)
     const bson_t *doc;
     bson_t doc_response = BSON_INITIALIZER;
     bson_t query;
-    char* response;
 
     if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_POST))) {
         return NGX_HTTP_NOT_ALLOWED;
@@ -169,7 +168,7 @@ ngx_http_mg_handler(ngx_http_request_t *r)
         return NGX_HTTP_NOT_MODIFIED;
     }
 
-    return ngx_http_send_response(r, NGX_HTTP_OK, &ngx_http_json_type, &cv);
+    return ngx_http_send_response(r, NGX_HTTP_OK, &application_type, &cv);
 }
 
 static char *
