@@ -1,6 +1,6 @@
-#CFLAGS="-g -O0 -I/usr/local/include/mongo -I/home/cojennin/opt/boost_1_55_0/" ./configure --add-module=/home/cojennin/code/work/ngx/ngxmods/Mongo-Good --with-debug --with-ld-opt="-lstdc++ -lmongoclient -L/home/cojennin/opt/boost_1_55_0" --with-cpp_test_module
+#CFLAGS="-g -O0 -I/home/cojennin/opt/libbson/src/bson -I/home/cojennin/opt/mongo-c-driver-0.94.0/src/mongoc" ./configure --add-module=/home/cojennin/code/work/ngx/ngxmods/Mongo-Good --with-ld-opt="-lbson-1.0 -lmongoc-1.0" --with-debug
 
-ngx_addon_name=ngx_http_mongo_good_module
+ngx_addon_name=ngx_http_mg_module
 
-HTTP_MODULES="$HTTP_MODULES ngx_http_mongo_good_module"
-NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_mongo_good.cpp"
+HTTP_MODULES="$HTTP_MODULES ngx_http_mg_module"
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_mg_module.c"
