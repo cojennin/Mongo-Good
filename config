@@ -1,4 +1,4 @@
-#CFLAGS="-g -O0 -I/home/cojennin/opt/libbson/src/bson -I/home/cojennin/opt/mongo-c-driver-0.94.0/src/mongoc" ./configure --add-module=/home/cojennin/code/work/ngx/ngxmods/Mongo-Good --with-ld-opt="-lbson-1.0 -lmongoc-1.0" --with-debug
+#CFLAGS="-g -O0 -I/usr/local/include/libbson-1.0 -I/usr/local/include/libmongoc-1.0" ./configure --add-module=/home/cojennin/code/nginx/Mongo-Good --with-ld-opt="-lbson-1.0 -lmongoc-1.0" --with-debug
 
 ngx_addon_name=ngx_http_mg_module
 
