@@ -154,11 +154,17 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     mongoc_cursor_t *cursor;
 
     //Dealing with bson here.
-    char* response;
     bson_error_t error;
     const bson_t *doc;
     bson_t doc_response = BSON_INITIALIZER;
     bson_t query;
+
+    char* response;
+    ngx_str_t find_field;
+    ngx_str_t find_type;
+    ngx_str_t find_value;
+    ngx_str_t offset;
+    ngx_str_t limit;
 
     //Init our client and connect
     mongoc_init();
@@ -175,6 +181,18 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
       ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
       return 0;
     }
+
+    //Before we find, let's see if we're querying for anything specific.
+    if(ngx_http_arg(r, (u_char *), "find_field", 10, &find_field)) {
+      if(ngx_http_arg(r, (u_char *), "find_type", 9, &find_type)) {
+      }
+    }
+
+    //Do we need an offset?
+    ngx_http_arg(r, (u_char *), "offset", 6, &offset);
+
+    //What about a limit?
+    ngx_http_arg(r, (u_char *), "limit",  5, &limit);
 
     cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, 0, 0, 0, &query, NULL, NULL);
 
