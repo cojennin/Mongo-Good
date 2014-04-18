@@ -158,13 +158,19 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     const bson_t *doc;
     bson_t doc_response = BSON_INITIALIZER;
     bson_t query;
+    bson_t find;
 
+    int count;
+    ngx_str_t q;
     char* response;
-    ngx_str_t find_field;
-    ngx_str_t find_type;
-    ngx_str_t find_value;
+
+    //Query vars.
+    char* field;
+    char* value;
     ngx_str_t offset;
+    int offsetI;
     ngx_str_t limit;
+    int limitI;
 
     //Init our client and connect
     mongoc_init();
@@ -183,18 +189,25 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     }
 
     //Before we find, let's see if we're querying for anything specific.
-    if(ngx_http_arg(r, (u_char *), "find_field", 10, &find_field)) {
-      if(ngx_http_arg(r, (u_char *), "find_type", 9, &find_type)) {
-      }
+    //The query will come in the form of ?q=field:value
+    if(ngx_http_arg(r, (u_char *) "q", 1, &q) == NGX_OK) {
+      u_char* ptr = strchr(q.data, ':' ); //Find our dividing character.
+      int index = ptr - q.data; //The index of :
+      field = ngx_palloc(r->pool, index);
+      value = ngx_palloc(r->pool, q.len - index - 1);
+      strncpy(field, q.data, index);
+      strncpy(value, q.data + index + 1, q.len - index - 1);
+      //bson_append_document_begin(&query, field, index, &find);
+      bson_append_regex(&query, field, index, value, "i");
     }
 
     //Do we need an offset?
-    ngx_http_arg(r, (u_char *), "offset", 6, &offset);
+    ngx_http_arg(r, (u_char *) "offset", 6, &offset);
 
     //What about a limit?
-    ngx_http_arg(r, (u_char *), "limit",  5, &limit);
+    ngx_http_arg(r, (u_char *) "limit",  5, &limit);
 
-    cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, 0, 0, 0, &query, NULL, NULL);
+    cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, 0, 0, limit, &query, NULL, NULL);
 
     if(mongoc_cursor_error(cursor, &error)) {
       ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"There was a problem connecting to the mongo cluster.\" }");
@@ -226,6 +239,8 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
       return 0;
     }
 
+    //Get num of docs found in this query.
+    count = mongoc_collection_count(collection, MONGOC_QUERY_NONE, 0, 0, 0 &query, NULL, &error);
     //Get rid of strncpy, we're well aware of the size being allocated.
     strncpy(response, "{\"q_results\" : [", 16);
     strncpy(response + 16, str, strlen(str) + 16);
