@@ -3,12 +3,6 @@
 #include <ngx_http.h>
 #include "mongoc.h"
 
-static ngx_int_t ngx_http_mg_handler(ngx_http_request_t *);
-static char* ngx_http_mg(ngx_conf_t *, ngx_command_t *, void *);
-static void* ngx_http_mg_create_loc_conf(ngx_conf_t *);
-static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
-static ngx_str_t application_type = ngx_string("application/json");
-
 typedef struct {
   ngx_str_t     mongo_server_addr;
   ngx_str_t     mongo_database;
@@ -20,7 +14,17 @@ typedef struct {
 typedef struct {
   ngx_str_t     error_msg;
   ngx_int_t     error_code;
-} error_s
+} error_s;
+
+static ngx_int_t ngx_http_mg_handler(ngx_http_request_t *);
+static char* ngx_http_mg(ngx_conf_t *, ngx_command_t *, void *);
+static void* ngx_http_mg_create_loc_conf(ngx_conf_t *);
+static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
+static ngx_str_t application_type = ngx_string("application/json");
+static char ngx_http_mg_handle_get_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
+static char ngx_http_mg_handle_post_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
+static char* build_conn_uri(char*, char*, char*);
+
 
 static ngx_command_t ngx_http_mg_commands[] = {
   {
@@ -99,8 +103,7 @@ ngx_http_mg_handler(ngx_http_request_t *r)
     ngx_int_t    rc;
     ngx_http_mg_conf_t  *mgcf;
     ngx_http_complex_value_t cv;
-    char* response;
-    error_s* error;
+    error_s* error = malloc(sizeof(error_s));
 
     //Let's assume we can handle the following.
     //GET will get
@@ -118,10 +121,10 @@ ngx_http_mg_handler(ngx_http_request_t *r)
 
     //If we've got a GET request, process it
     if(r->method == NGX_HTTP_GET) {
-      if(ngx_http_mg_handle_get_request(r, mgcf, &cv, error) == NULL) {
+      if(ngx_http_mg_handle_get_request(r, mgcf, &cv, error) == 0) {
         ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
         cv.value.len = error->error_msg.len;
-        cv.value.data = error->error_msg;
+        cv.value.data = error->error_msg.data;
 
         return ngx_http_send_response(r, error->error_code, &application_type, &cv);
       }
@@ -129,10 +132,10 @@ ngx_http_mg_handler(ngx_http_request_t *r)
 
     //Duplicative, can refactor.
     if(r->method == NGX_HTTP_POST) {
-      if(ngx_http_mg_handle_post_request(r, mgcf, &cv, error) == NULL) {
+      if(ngx_http_mg_handle_post_request(r, mgcf, &cv, error) == 0) {
         ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
         cv.value.len = error->error_msg.len;
-        cv.value.data = error->error_msg;
+        cv.value.data = error->error_msg.data;
 
         return ngx_http_send_response(r, error->error_code, &application_type, &cv);
       }
@@ -143,14 +146,15 @@ ngx_http_mg_handler(ngx_http_request_t *r)
 
 //Build out the complex value from our query and modify our
 //request appropriately (handle the application type, etc).
-static char*
-ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t mgcf*, ngx_http_complex_value_t* cv, error_s* ngx_mg_req_error) {
+static char
+ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, ngx_http_complex_value_t* cv, error_s* ngx_mg_req_error) {
     //Mongoc related vars
-    mongo_client_t *client;
+    mongoc_client_t *client;
     mongoc_collection_t *collection;
     mongoc_cursor_t *cursor;
 
     //Dealing with bson here.
+    char* response;
     bson_error_t error;
     const bson_t *doc;
     bson_t doc_response = BSON_INITIALIZER;
@@ -167,18 +171,29 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t mgcf*, 
 
     //Also a 500
     if(!collection) {
-      ngx_mg_req_error = malloc(sizeof(error_s));
       ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"Unable to get collection.\" }");
       ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
-      return NULL;
+      return 0;
     }
 
     cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, 0, 0, 0, &query, NULL, NULL);
+
+    if(mongoc_cursor_error(cursor, &error)) {
+      ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"There was a problem connecting to the mongo cluster.\" }");
+      ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
+      return 0;
+    }
 
     while(!mongoc_cursor_error(cursor, &error) && mongoc_cursor_more(cursor)) {
       if(mongoc_cursor_next(cursor, &doc)) {
         bson_concat(&doc_response, doc); //Concatenate the bson documents into one large document.
       }
+    }
+
+    if(mongoc_cursor_error(cursor, &error)) {
+      ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"There was a problem with the Mongo Cursor.\" }");
+      ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
+      return 0;
     }
 
     char* str = bson_as_json(&doc_response, NULL);
@@ -188,25 +203,18 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t mgcf*, 
 
     //If we couldn't allocate, fail.
     if( !response ) {
-      ngx_mg_req_error = malloc(sizeof(error_s));
       ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"Unable to allocate enough memory for a response.\" }");
       ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
-      return NULL;
+      return 0;
     }
 
     //Get rid of strncpy, we're well aware of the size being allocated.
-    strpy(response, "{\"q_results\" : [");
-    strcpy(response, str);
-    strcpy(response, "] }\0"); //Wrap up and terminate.
+    int cx;
+    strncpy(response, "{\"q_results\" : [", 16);
+    strncpy(response + 16, str, strlen(str) + 16);
+    strncpy(response + 16 + strlen(str), "] }\0", 4); //Wrap up and terminate.
 
     bson_free(str); //Free up str.
-
-    if(mongoc_cursor_error(cursor, &error)) {
-      ngx_mg_req_error = malloc(sizeof(error_s));
-      ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"There was a problem with the Mongo Cursor.\" }");
-      ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
-      return NULL;
-    }
 
     bson_destroy(&query);
     mongoc_cursor_destroy(cursor);
@@ -221,16 +229,17 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t mgcf*, 
 }
 
 //Handle posting to Mongo.
-static char *
-ngx_http_mg_handle_post_request(ngx_http_request_t* r, ngx_http_mg_conf_t* mgcf, ngx_http_complex_value_t* cv, char* errormsg) {
-    char uri*
+static char
+ngx_http_mg_handle_post_request(ngx_http_request_t* r, ngx_http_mg_conf_t* mgcf, ngx_http_complex_value_t* cv, error_s* ngx_mg_req_error) {
 
     //Mongoc related vars
-    mongo_client_t *client;
+    mongoc_client_t *client;
     mongoc_collection_t *collection;
     mongoc_cursor_t *cursor;
 
     //Dealing with bson here.
+    char* response;
+    char* uri;
     bson_error_t error;
     const bson_t *doc;
     bson_t doc_response = BSON_INITIALIZER;
@@ -239,14 +248,13 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r, ngx_http_mg_conf_t* mgcf,
     //Init our client and connect
     mongoc_init();
 
-    uri = build_conn_uri(mgcf->mongo_server_addr.data, mgcf->mongo_user.data, mgcf->mongo_pass.data);
+    uri = build_conn_uri(mgcf->mongo_server_addr.data, mgcf->mongo_user.data, mgcf->mongo_passw.data);
     client = mongoc_client_new(uri); //Connect to db. Let's assume for the moment all actions require connection.
 
     if(!client) {
-      ngx_mg_req_error = malloc(sizeof(error_s));
-      ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"Could not authenticate." }");
+      ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"Could not authenticate.\" }");
       ngx_mg_req_error->error_code = NGX_HTTP_UNAUTHORIZED;
-      return NULL;
+      return 0;
     }
 
     //https://github.com/mongodb/mongo-c-driver/blob/master/doc/mongoc_collection_find.txt
@@ -254,16 +262,15 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r, ngx_http_mg_conf_t* mgcf,
 
     //Also a 500
     if(!collection) {
-      ngx_mg_req_error = malloc(sizeof(error_s));
       ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"Unable to get collection.\" }");
       ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
-      return NULL;
+      return 0;
     }
 
     return 1;
 }
 
-static char *
+static char*
 build_conn_uri(char* addr, char* username, char* pass)
 {
      return bson_strdup_printf("mongodb://%s:%s@%s:27017",
