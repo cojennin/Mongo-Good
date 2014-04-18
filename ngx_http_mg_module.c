@@ -209,7 +209,6 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     }
 
     //Get rid of strncpy, we're well aware of the size being allocated.
-    int cx;
     strncpy(response, "{\"q_results\" : [", 16);
     strncpy(response + 16, str, strlen(str) + 16);
     strncpy(response + 16 + strlen(str), "] }\0", 4); //Wrap up and terminate.
