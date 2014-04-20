@@ -199,7 +199,6 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
       value = ngx_palloc(r->pool, q.len - index - 1);
       strncpy(field, q.data, index);
       strncpy(value, q.data + index + 1, q.len - index - 1);
-      //bson_append_document_begin(&query, field, index, &find);
       bson_append_regex(&query, field, index, value, "i");
     }
 
@@ -211,10 +210,10 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
 
     offsetI = ngx_atoi(offset.data, offset.len); //Convert offset to int
     limitI = ngx_atoi(limit.data, limit.len); //Convert limit to int
-    offsetA = malloc(offset.len);
-    limitA = malloc(limit.len);
-    snprintf(offsetA, offset.len + 1, "%s", offset.data);
-    snprintf(limitA,  limit.len + 1, "%s", limit.data);
+    offsetA = ngx_palloc(r->pool, offset.len);
+    limitA = ngx_palloc(r->pool, limit.len);
+    snprintf(offsetA, offset.len + 1, "%s", offset.data); //Offset as string + null char
+    snprintf(limitA,  limit.len + 1, "%s", limit.data); //Offset as string + null char
 
     cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, offsetI, limitI, 0, &query, NULL, NULL);
 
@@ -250,11 +249,6 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
 
     //Get rid of strncpy, we're well aware of the size being allocated.
     sprintf(response, "{\"q_results\" : [ %s ], count: %d, limit: %s, offset: %s }", str, count, limitA, offsetA);
-    //strncpy(response, "{\"q_results\" : [", 16);
-    //strncpy(response + 16, str, result_len + 16);
-    //strncpy(response + 16 + result_len, "], count: ", 9); //Wrap up and terminate.
-    //strncpy(response + 25 + result_len, limit.data, limit.len);
-    //strncpy(response + 25 + result_len + limit.len, " }\0", 3);
 
     bson_free(str); //Free up str.
 
