@@ -23,4 +23,6 @@ To finish up run make, then make install.
 
 You should be all set! (by default, I believe nginx is installed to /usr/local/share. Can change that at your lesiure).
 
+Example URL: http://localhost/mongo?limit=1&offset=2&q=field:valueToSearch
+
 Good luck!
