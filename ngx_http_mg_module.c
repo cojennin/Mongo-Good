@@ -167,10 +167,12 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     //Query vars.
     char* field;
     char* value;
-    ngx_str_t offset;
+    ngx_str_t offset = ngx_string("0");
     int offsetI;
-    ngx_str_t limit;
+    char* offsetA;
+    ngx_str_t limit = ngx_string("0");
     int limitI;
+    char* limitA;
 
     //Init our client and connect
     mongoc_init();
@@ -207,7 +209,14 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     //What about a limit?
     ngx_http_arg(r, (u_char *) "limit",  5, &limit);
 
-    cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, 0, 0, limit, &query, NULL, NULL);
+    offsetI = ngx_atoi(offset.data, offset.len); //Convert offset to int
+    limitI = ngx_atoi(limit.data, limit.len); //Convert limit to int
+    offsetA = malloc(offset.len);
+    limitA = malloc(limit.len);
+    snprintf(offsetA, offset.len + 1, "%s", offset.data);
+    snprintf(limitA,  limit.len + 1, "%s", limit.data);
+
+    cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, offsetI, limitI, 0, &query, NULL, NULL);
 
     if(mongoc_cursor_error(cursor, &error)) {
       ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"There was a problem connecting to the mongo cluster.\" }");
@@ -228,9 +237,9 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     }
 
     char* str = bson_as_json(&doc_response, NULL);
-
+    count = mongoc_collection_count(collection, MONGOC_QUERY_NONE, &query, offsetI, limitI, NULL, &error);
     //Ok, need a large enough string to contain our docs + extra info.
-    response = (char*)ngx_palloc(r->pool, strlen(str) + 20 );
+    response = (char*)ngx_palloc(r->pool, strlen(str) + 49 + limit.len + offset.len + sizeof(count));
 
     //If we couldn't allocate, fail.
     if( !response ) {
@@ -239,12 +248,13 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
       return 0;
     }
 
-    //Get num of docs found in this query.
-    count = mongoc_collection_count(collection, MONGOC_QUERY_NONE, 0, 0, 0 &query, NULL, &error);
     //Get rid of strncpy, we're well aware of the size being allocated.
-    strncpy(response, "{\"q_results\" : [", 16);
-    strncpy(response + 16, str, strlen(str) + 16);
-    strncpy(response + 16 + strlen(str), "] }\0", 4); //Wrap up and terminate.
+    sprintf(response, "{\"q_results\" : [ %s ], count: %d, limit: %s, offset: %s }", str, count, limitA, offsetA);
+    //strncpy(response, "{\"q_results\" : [", 16);
+    //strncpy(response + 16, str, result_len + 16);
+    //strncpy(response + 16 + result_len, "], count: ", 9); //Wrap up and terminate.
+    //strncpy(response + 25 + result_len, limit.data, limit.len);
+    //strncpy(response + 25 + result_len + limit.len, " }\0", 3);
 
     bson_free(str); //Free up str.
 
