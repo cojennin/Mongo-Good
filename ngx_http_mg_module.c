@@ -20,11 +20,11 @@ static ngx_int_t ngx_http_mg_handler(ngx_http_request_t *);
 static char* ngx_http_mg(ngx_conf_t *, ngx_command_t *, void *);
 static void* ngx_http_mg_create_loc_conf(ngx_conf_t *);
 static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
-static ngx_str_t application_type = ngx_string("application/json");
 static char ngx_http_mg_handle_get_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
 static char ngx_http_mg_handle_post_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
 static char* build_conn_uri(char*, char*, char*);
 
+static ngx_str_t application_type = ngx_string("application/json");
 
 static ngx_command_t ngx_http_mg_commands[] = {
   {
