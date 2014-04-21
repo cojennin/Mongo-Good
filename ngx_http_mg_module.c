@@ -5,6 +5,7 @@
 
 typedef struct {
   ngx_str_t     mongo_server_addr;
+  ngx_str_t     mongo_port;
   ngx_str_t     mongo_database;
   ngx_str_t     mongo_collection;
   ngx_str_t     mongo_user;
@@ -23,6 +24,7 @@ static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
 static char ngx_http_mg_handle_get_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
 static char ngx_http_mg_handle_post_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
 static char* build_conn_uri(char*, char*, char*);
+static mongoc_uri_t* ngx_http_create_mongo_conn_uri(char*, char*, char*, char*);
 
 static ngx_str_t application_type = ngx_string("application/json");
 
@@ -33,6 +35,14 @@ static ngx_command_t ngx_http_mg_commands[] = {
     ngx_http_mg,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_mg_conf_t, mongo_server_addr),
+    NULL
+  },
+  {
+    ngx_string("mongo_port"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_mg_conf_t, mongo_port),
     NULL
   },
   {
@@ -160,6 +170,7 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     bson_t query;
     bson_t find;
 
+    mongoc_uri_t* uri;
     int count;
     ngx_str_t q;
     char* response;
@@ -174,9 +185,11 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     int limitI;
     char* limitA;
 
+    uri = ngx_http_create_mongo_conn_uri(mgcf->mongo_server_addr.data, mgcf->mongo_port.data, mgcf->mongo_user.data, mgcf->mongo_passw.data);
+
     //Init our client and connect
     mongoc_init();
-    client = mongoc_client_new(mgcf->mongo_server_addr.data); //Connect to db. Let's assume for the moment all actions require connection.
+    client = mongoc_client_new_from_uri(uri); //Connect to db. Let's assume for the moment all actions require connection.
 
     bson_init( &query ); //init bson
 
@@ -210,6 +223,8 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
 
     offsetI = ngx_atoi(offset.data, offset.len); //Convert offset to int
     limitI = ngx_atoi(limit.data, limit.len); //Convert limit to int
+
+    //Todo: This needs a check to determine if there's memory left.
     offsetA = ngx_palloc(r->pool, offset.len);
     limitA = ngx_palloc(r->pool, limit.len);
     snprintf(offsetA, offset.len + 1, "%s", offset.data); //Offset as string + null char
@@ -278,8 +293,6 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r, ngx_http_mg_conf_t* mgcf,
     char* uri;
     bson_error_t error;
     const bson_t *doc;
-    bson_t doc_response = BSON_INITIALIZER;
-    bson_t query;
 
     //Init our client and connect
     mongoc_init();
@@ -293,27 +306,42 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r, ngx_http_mg_conf_t* mgcf,
       return 0;
     }
 
-    //https://github.com/mongodb/mongo-c-driver/blob/master/doc/mongoc_collection_find.txt
-    collection = mongoc_client_get_collection(client, mgcf->mongo_database.data, mgcf->mongo_collection.data); //Get our requested collection
-
-    //Also a 500
-    if(!collection) {
-      ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"Unable to get collection.\" }");
-      ngx_mg_req_error->error_code = NGX_HTTP_INTERNAL_SERVER_ERROR;
-      return 0;
-    }
-
     return 1;
 }
 
 static char*
 build_conn_uri(char* addr, char* username, char* pass)
 {
-     return bson_strdup_printf("mongodb://%s:%s@%s:27017",
-                                      pass,
+    return bson_strdup_printf("mongodb://%s:%s@%s",
                                       username,
+                                      pass,
                                       addr);
 }
+
+static mongoc_uri_t*
+ngx_http_create_mongo_conn_uri(char* addr, char* port, char* username, char* pass)
+{
+    char* uri_string;
+    if(strlen(username) > 0 && strlen(pass) > 0) {
+      uri_string = bson_strdup_printf("mongodb://%s:%s@%s:%s",
+                                      username,
+                                      pass,
+                                      addr,
+                                      port);
+    } else if(strlen(username) > 0) {
+      uri_string = bson_strdup_printf("mongodb://%s@%s:%s",
+                                      username,
+                                      addr,
+                                      port);
+    } else {
+      uri_string = bson_strdup_printf("mongodb://%s:%s",
+                                      addr,
+                                      port);
+    }
+
+    return mongoc_uri_new(uri_string);
+}
+
 
 static char *
 ngx_http_mg(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -357,7 +385,8 @@ ngx_http_mg_merge_loc_conf(ngx_conf_t *cf, void * parent, void * child)
     ngx_http_mg_conf_t *conf = (ngx_http_mg_conf_t *) child;
 
     //Merge up all our defaults.
-    ngx_conf_merge_str_value(conf->mongo_server_addr, prev->mongo_server_addr, "mongodb://127.0.0.1");
+    ngx_conf_merge_str_value(conf->mongo_server_addr, prev->mongo_server_addr, "127.0.0.1");
+    ngx_conf_merge_str_value(conf->mongo_port, prev->mongo_port, "27017");
     ngx_conf_merge_str_value(conf->mongo_database, prev->mongo_database, "test");
     ngx_conf_merge_str_value(conf->mongo_collection, prev->mongo_collection, "test");
     ngx_conf_merge_str_value(conf->mongo_user, prev->mongo_user, "");
