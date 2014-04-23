@@ -10,6 +10,7 @@ typedef struct {
   ngx_str_t     mongo_collection;
   ngx_str_t     mongo_user;
   ngx_str_t     mongo_passw;
+  bson_t        unreadable_fields;
 } ngx_http_mg_conf_t;
 
 typedef struct {
@@ -24,6 +25,8 @@ static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
 static ngx_int_t ngx_http_mg_handle_get_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
 void ngx_http_mg_handle_post_request(ngx_http_request_t*);
 static mongoc_uri_t* ngx_http_create_mongo_conn_uri(char*, char*, char*, char*);
+static char* ngx_http_mg_unreadable_fields(ngx_conf_t*, ngx_command_t*, void*);
+
 
 static ngx_str_t application_type = ngx_string("application/json");
 
@@ -65,14 +68,23 @@ static ngx_command_t ngx_http_mg_commands[] = {
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_mg_conf_t, mongo_user),
-    NULL },
+    NULL
+  },
 
   { ngx_string("mongo_passw"),
     NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_mg_conf_t, mongo_passw),
-    NULL },
+    NULL
+  },
+  { ngx_string("mongo_unreadable_field"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE12, //Up to 12 unreadable fields
+    ngx_http_mg_unreadable_fields,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
 
   ngx_null_command
 };
@@ -232,11 +244,18 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
 
     //Todo: This needs a check to determine if there's memory left?
     limitA = ngx_palloc(r->pool, limit.len);
-    snprintf(offsetA, offset.len + 1, "%s", offset.data); //Offset as string + null char
     offsetA = ngx_palloc(r->pool, offset.len);
+    //Format our offset and limit.
+    snprintf(offsetA, offset.len + 1, "%s", offset.data); //Offset as string + null char
     snprintf(limitA,  limit.len + 1, "%s", limit.data); //Offset as string + null char
+    //Before we query, append our document of unreadable fields (if there are any)
 
-    cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, offsetI, limitI, 0, &query, NULL, NULL);
+    //If we don't have any unreadable fields, make this null.
+    if(mgcf->unreadable_fields.len > 0) {
+      cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, offsetI, limitI, 0, &query, &mgcf->unreadable_fields, NULL);
+    } else {
+      cursor = mongoc_collection_find(collection, MONGOC_QUERY_NONE, offsetI, limitI, 0, &query, NULL, NULL);
+    }
 
     if(mongoc_cursor_error(cursor, &error)) {
       ngx_mg_req_error->error_msg = (ngx_str_t)ngx_string("{ \"ok\" : false, \"reason\" : \"There was a problem connecting to the mongo cluster.\" }");
@@ -357,6 +376,28 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r)  {
     ngx_http_finalize_request(r, NGX_OK);
 }
 
+static char*
+ngx_http_mg_unreadable_fields(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+  ngx_http_mg_conf_t *mgcf = conf;
+  ngx_str_t *value;
+
+  value = cf->args->elts;
+
+  //Start our bson doc, this will be used for our unreadable fields.
+  bson_init(&mgcf->unreadable_fields);
+
+  //Per the docs, explicitly exclude certain fields by zeroin'g their value out.
+  int i = 1;
+  for(i; i < cf->args->nelts; i++) {
+    if(!bson_append_int32(&mgcf->unreadable_fields, value[i].data, value[i].len, 0)){
+      return NGX_CONF_ERROR;
+    }
+  }
+
+  return NGX_CONF_OK;
+}
+
 static mongoc_uri_t*
 ngx_http_create_mongo_conn_uri(char* addr, char* port, char* username, char* pass)
 {
@@ -432,5 +473,5 @@ ngx_http_mg_merge_loc_conf(ngx_conf_t *cf, void * parent, void * child)
     ngx_conf_merge_str_value(conf->mongo_passw, prev->mongo_passw, "");
 
     return NGX_CONF_OK;
-}
 
+}
