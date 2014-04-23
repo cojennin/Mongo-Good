@@ -23,7 +23,6 @@ static void* ngx_http_mg_create_loc_conf(ngx_conf_t *);
 static char* ngx_http_mg_merge_loc_conf(ngx_conf_t *, void *, void *);
 static ngx_int_t ngx_http_mg_handle_get_request(ngx_http_request_t*, ngx_http_mg_conf_t*, ngx_http_complex_value_t*, error_s*);
 void ngx_http_mg_handle_post_request(ngx_http_request_t*);
-static char* build_conn_uri(char*, char*, char*);
 static mongoc_uri_t* ngx_http_create_mongo_conn_uri(char*, char*, char*, char*);
 
 static ngx_str_t application_type = ngx_string("application/json");
@@ -231,7 +230,7 @@ ngx_http_mg_handle_get_request(ngx_http_request_t *r, ngx_http_mg_conf_t* mgcf, 
     offsetI = ngx_atoi(offset.data, offset.len); //Convert offset to int
     limitI = ngx_atoi(limit.data, limit.len); //Convert limit to int
 
-    //Todo: This needs a check to determine if there's memory left.
+    //Todo: This needs a check to determine if there's memory left?
     limitA = ngx_palloc(r->pool, limit.len);
     snprintf(offsetA, offset.len + 1, "%s", offset.data); //Offset as string + null char
     offsetA = ngx_palloc(r->pool, offset.len);
@@ -298,6 +297,7 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r)  {
     mongoc_collection_t *collection;
 
     ngx_int_t rc;
+    bool inserted;
 
     //Dealing with bson here.
     char* response;
@@ -327,11 +327,27 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r)  {
       ngx_http_send_response(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &application_type, &cv);
     }
 
+    //Fetch posted data and digest it, then attempt to upsert the data.
     post_data = bson_new_from_json(r->request_body->bufs->buf->pos, strlen(r->request_body->bufs->buf->pos), &error);
-    bool inserted = mongoc_collection_update(collection, MONGOC_UPDATE_UPSERT, post_data, post_data, NULL, &error);
+    //If not able to create bson from our json
+    if(!post_data) {
+      ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
+      cv.value.data = "{ \"ok\" : false, \"reason\" : \"Parsing error. Unable to create bson from json.\" }";
+      cv.value.len = strlen(cv.value.data);
+      ngx_http_send_response(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &application_type, &cv);
+    }
 
-    //For time being, just assumed everything went well and return a successful message.
-    //Todo: Check if correctly inserted.
+    inserted = mongoc_collection_update(collection, MONGOC_UPDATE_UPSERT, post_data, post_data, NULL, &error);
+
+    //Unable to do upsert.
+    if(!inserted) {
+      ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
+      cv.value.data = "{ \"ok\" : false, \"reason\" : \"Unable to upsert document.\" }";
+      cv.value.len = strlen(cv.value.data);
+      ngx_http_send_response(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &application_type, &cv);
+    }
+
+    //Sweet. Updated correctly.
     ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
     cv.value.data = "{ \"ok\" true, \"reason\" : \"Insert/Update successful.\" }";
     cv.value.len = strlen(cv.value.data);
@@ -339,15 +355,6 @@ ngx_http_mg_handle_post_request(ngx_http_request_t* r)  {
 
     //Is this necessary?
     ngx_http_finalize_request(r, NGX_OK);
-}
-
-static char*
-build_conn_uri(char* addr, char* username, char* pass)
-{
-    return bson_strdup_printf("mongodb://%s:%s@%s",
-                                      username,
-                                      pass,
-                                      addr);
 }
 
 static mongoc_uri_t*
