@@ -1,3 +1,5 @@
+## This repo is deprecated. Please check [https://bitbucket.org/cojennin/mongo-good](https://bitbucket.org/cojennin/mongo-good) for further updates.
+
 # Mongo-Good
 ==========
 An NGINX extension to do good.
